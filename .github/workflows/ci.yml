@@ -52,6 +52,14 @@ jobs:
       run: |
             cd $GITHUB_WORKSPACE
             PYBUILD=3.12 bash ./scripts/build-pkg.sh
+        
+
+    - name: Upload build artifact wheels
+      uses: actions/upload-artifact@v2.2.4
+      with:
+        name: wheel
+        path: $GITHUB_WORKSPACE/dist/*
+
 
     - name: build 3.12 loader
       run: |
@@ -99,9 +107,5 @@ jobs:
         branch: gh-pages
         folder: build/web/archives
 
-    - name: Upload build artifact wheels
-      uses: actions/upload-artifact@v2.2.4
-      with:
-        name: wheel
-        path: $GITHUB_WORKSPACE/dist/*
+
 
