@@ -5,7 +5,9 @@ export CONFIG=${CONFIG:-$SDKROOT/config}
 
 . ${CONFIG}
 
-PACKAGE=raylib
+mkdir -p external
+
+PACKAGE=raylib-python-cffi
 
 echo "
 
@@ -18,26 +20,30 @@ echo "
 " 1>&2
 
 
-mkdir -p external
-
 if pushd $(pwd)/external
 then
+
     if [ -d ${PACKAGE} ]
     then
         pushd $(pwd)/${PACKAGE}
         git restore .
         git pull
     else
-        git clone --no-tags --depth 1 --single-branch --branch master https://github.com/raysan5/raylib ${PACKAGE}
+        git clone --no-tags --depth 1 --single-branch --branch master https://github.com/electronstudio/raylib-python-cffi ${PACKAGE}
         pushd $(pwd)/${PACKAGE}
+        git submodule init
+        git submodule update --depth 1
     fi
 
-    # This patch is required to avoid brinding ASYNCIFY into the SIDE_MODULE (.so)
-    # the main module ( pygbag+libpython ) does not use ASYNCIFY so it would not be
-    # compatible
-    # the only drawback is to use async for game loop ( same as pygame / panda3D , etc )
-    # which is not a problem since only async tasks can solve "os threading"
-    # correctly on wasm
+    # build raylib
+    cd raylib-c
+
+        # This patch is required to avoid brinding ASYNCIFY into the SIDE_MODULE (.so)
+        # the main module ( pygbag+libpython ) does not use ASYNCIFY so it would not be
+        # compatible
+        # the only drawback is to use async for game loop ( same as pygame / panda3D , etc )
+        # which is not a problem since only async tasks can solve "os threading"
+        # correctly on wasm
 
 
     patch -p1 <<END
@@ -56,100 +62,34 @@ index a13f699..52ab2a1 100644
 
 END
 
-    cp ./examples/shapes/raygui.h ${PREFIX}/include/
 
-    popd
-    popd
-fi
-
-PACKAGE=physac
-if pushd $(pwd)/external
-then
-    if [ -d ${PACKAGE} ]
-    then
-        pushd $(pwd)/${PACKAGE}
-        git restore .
-        git pull
-    else
-        git clone --no-tags --depth 1 --single-branch --branch master https://github.com/raysan5/physac ${PACKAGE}
-        pushd $(pwd)/${PACKAGE}
-    fi
-
-    cp ./src/physac.h ${PREFIX}/include/
-
-    popd
-    popd
-fi
-
-PACKAGE=raygui
-if pushd $(pwd)/external
-then
-    if [ -d ${PACKAGE} ]
-    then
-        pushd $(pwd)/${PACKAGE}
-        git restore .
-        git pull
-    else
-        git clone --no-tags --depth 1 --single-branch --branch master https://github.com/raysan5/raygui ${PACKAGE}
-        pushd $(pwd)/${PACKAGE}
-    fi
-
-    cp src/raygui.h ${PREFIX}/include/
-
-    popd
-    popd
-fi
-
-
-
-
-
-
-# build raylib C lib as a static
-# install it so pkg-config can find it later.
-
-PACKAGE=raylib
-
-mkdir -p build/${PACKAGE}
-if pushd build/${PACKAGE}
-then
+    mkdir build
+    cd build
     . ${SDKROOT}/wasm32-${WASM_FLAVOUR}-emscripten-shell.sh
-    emcmake cmake ../../external/${PACKAGE} -DCMAKE_INSTALL_PREFIX=$PREFIX \
- -DCMAKE_BUILD_TYPE=Release \
- -DPLATFORM=Web \
- -DGRAPHICS=GRAPHICS_API_OPENGL_ES3 \
- -DBUILD_EXAMPLES=OFF
+    emcmake cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX \
+     -DCMAKE_BUILD_TYPE=Release \
+     -DPLATFORM=Web \
+     -DGRAPHICS=GRAPHICS_API_OPENGL_ES3 \
+     -DBUILD_EXAMPLES=OFF \
+     -DCUSTOMIZE_BUILD=ON \
+     -DSUPPORT_FILEFORMAT_JPG=ON \
+     -DSUPPORT_FILEFORMAT_FLAC=ON
 
     emmake make install
 
-    mv -v raylib/libraylib.a ${SDKROOT}/prebuilt/emsdk/lib${PACKAGE}${PYBUILD}.a
+    mv -v raylib/libraylib.a ${SDKROOT}/prebuilt/emsdk/libraylib${PYBUILD}.a
 
-    popd
-fi
-
-
-
-PACKAGE=raylib-python-cffi
-
-if pushd $(pwd)/external
-then
-
-    if [ -d ${PACKAGE} ]
-    then
-        pushd $(pwd)/${PACKAGE}
-        git restore .
-        git pull
-    else
-        git clone --no-tags --depth 1 --single-branch --branch master https://github.com/electronstudio/raylib-python-cffi ${PACKAGE}
-        pushd $(pwd)/${PACKAGE}
-    fi
+    cd ../..
 
     # fix some includes
     mkdir -p ${PREFIX}/include/GLFW
 
     cp ${EMSDK}/upstream/emscripten/system/include/GLFW/glfw3.h ${PREFIX}/include/GLFW/
 
-    # build itF
+    cp physac/src/physac.h ${PREFIX}/include/
+    cp raygui/src/raygui.h ${PREFIX}/include/
+
+    # build it
 
     ${SDKROOT}/python3-wasm setup.py bdist_wheel --py-limited-api=cp310
 
