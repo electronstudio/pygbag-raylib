@@ -57,8 +57,8 @@ jobs:
     - name: Upload build artifact wheels
       uses: actions/upload-artifact@v2.2.4
       with:
-        name: wheel
-        path: $GITHUB_WORKSPACE/dist/*
+        name: wheel312
+        path: /home/runner/work/pygbag-raylib/pygbag-raylib/external/raylib-python-cffi/dist/*
 
 
     - name: build 3.12 loader
