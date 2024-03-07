@@ -52,6 +52,14 @@ jobs:
       run: |
             cd $GITHUB_WORKSPACE
             PYBUILD=3.12 bash ./scripts/build-pkg.sh
+        
+
+    - name: Upload build artifact wheels
+      uses: actions/upload-artifact@v2.2.4
+      with:
+        name: wheel312
+        path: /home/runner/work/pygbag-raylib/pygbag-raylib/external/raylib-python-cffi/dist/*
+
 
     - name: build 3.12 loader
       run: |
@@ -62,6 +70,13 @@ jobs:
       run: |
             cd $GITHUB_WORKSPACE
             PYBUILD=3.13 bash ./scripts/build-pkg.sh
+
+
+    - name: Upload build artifact wheels
+      uses: actions/upload-artifact@v2.2.4
+      with:
+        name: wheel313
+        path: /home/runner/work/pygbag-raylib/pygbag-raylib/external/raylib-python-cffi/dist/*
 
     - name: build 3.13 loader
       run: |
@@ -98,4 +113,6 @@ jobs:
       with:
         branch: gh-pages
         folder: build/web/archives
+
+
 
