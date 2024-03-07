@@ -203,6 +203,9 @@ then
 
     # build it
 
+    echo "****** CURRENT DIRECTORY *******"
+    pwd
+
     ${SDKROOT}/python3-wasm setup.py bdist_wheel --py-limited-api=cp310
 
 
