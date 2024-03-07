@@ -101,30 +101,7 @@ then
 fi
 
 
-# https://github.com/sDos280/raylib-python-ctypes
-# https://github.com/pmp-p/raylib-python-ctypes-wasm
-RAYPYC=${RAYPYC:-false}
 
-if $RAYPYC
-then
-
-    PACKAGE=raylib-python-ctypes
-
-    if pushd $(pwd)/external
-    then
-        if [ -d ${PACKAGE} ]
-        then
-            pushd $(pwd)/${PACKAGE}
-            git restore .
-            git pull
-        else
-            git clone --no-tags --depth 1 --single-branch --branch main https://github.com/pmp-p/raylib-python-ctypes-wasm ${PACKAGE}
-            pushd $(pwd)/${PACKAGE}
-        fi
-        popd
-        popd
-    fi
-fi
 
 
 
@@ -145,42 +122,13 @@ then
 
     emmake make install
 
-    # raypyc rely on a shared lib raylib in its own wheel.
-    if $RAYPYC
-    then
-        # clean up native libs
-        rm ../../external/raylib-python-ctypes/raypyc/libs/*.so
-        rm ../../external/raylib-python-ctypes/raypyc/libs/*.dll
-
-        emcc -shared -o ../../external/raylib-python-ctypes/raypyc/libs/libraylib.wasm32-${WASM_FLAVOUR}-emscripten.so raylib/libraylib.a
-
-        rm ../../external/raylib-python-ctypes/raypyc/libs/lib*.so.map
-    fi
-
     mv -v raylib/libraylib.a ${SDKROOT}/prebuilt/emsdk/lib${PACKAGE}${PYBUILD}.a
 
     popd
 fi
 
 
-if $RAYPYC
-then
-    PACKAGE=raylib-python-ctypes
 
-    if pushd $(pwd)/external/${PACKAGE}
-    then
-
-        ${SDKROOT}/python3-wasm -m build --no-isolation .
-        if [ -d /data/git/archives/repo/pkg ]
-        then
-            mv dist/raypyc-*-py3-none-any.whl /data/git/archives/repo/pkg/
-        fi
-
-        popd
-    fi
-fi
-
-# https://github.com/electronstudio/raylib-python-cffi/issues/58
 PACKAGE=raylib-python-cffi
 
 if pushd $(pwd)/external
@@ -201,10 +149,7 @@ then
 
     cp ${EMSDK}/upstream/emscripten/system/include/GLFW/glfw3.h ${PREFIX}/include/GLFW/
 
-    # build it
-
-    echo "****** CURRENT DIRECTORY *******"
-    pwd
+    # build itF
 
     ${SDKROOT}/python3-wasm setup.py bdist_wheel --py-limited-api=cp310
 
