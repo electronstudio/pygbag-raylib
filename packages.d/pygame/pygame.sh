@@ -48,6 +48,13 @@ else
     fi
 fi
 
+if echo $PYBUILD|grep -q 3.13$
+then
+    $HPY -m pip install --upgrade --force git+https://github.com/cython/cython.git
+    echo
+fi
+
+
 mkdir -p external
 pushd $(pwd)/external
 
@@ -72,6 +79,12 @@ then
 
     #unsure
     wget -O- https://patch-diff.githubusercontent.com/raw/pmp-p/pygame-ce-wasm/pull/3.diff | patch -p1
+
+    # new cython
+    wget -O- https://patch-diff.githubusercontent.com/raw/pmp-p/pygame-ce-wasm/pull/6.diff | patch -p1
+
+    # added Vector2.from_polar and Vector3.from_spherical classmethods
+    wget -O- https://patch-diff.githubusercontent.com/raw/pygame-community/pygame-ce/pull/2141.diff | patch -p1
 
     patch -p1 << END
 diff --git a/src_c/static.c b/src_c/static.c
@@ -103,7 +116,8 @@ END
 
 
     # zerodiv mixer.music / merged
-    # wget -O - https://patch-diff.githubusercontent.com/raw/pygame-community/pygame-ce/pull/2426.diff | patch -p1
+    # wget -O- https://patch-diff.githubusercontent.com/raw/pygame-community/pygame-ce/pull/2426.diff | patch -p1
+
 
     # weird exception not raised correctly in test/pixelcopy_test
     patch -p1 <<END
@@ -247,7 +261,7 @@ then
     emcc -shared -Os -g0 -fpic -o ${TARGET_FILE} $SDKROOT/prebuilt/emsdk/libpygame${PYMAJOR}.${PYMINOR}.a $SDL2
 
     # github CI does not build wheel for now.
-    if [ -d /data/git/archives/repo/pkg ]
+    if [ -d /data/git/archives/repo/cp${TAG} ]
     then
         mkdir -p $TARGET_FOLDER
         /bin/cp -rf testing/pygame_static-1.0-cp${TAG}-cp${TAG}-wasm32_mvp_emscripten/. ${TARGET_FOLDER}/
@@ -259,7 +273,7 @@ then
             then
                 /data/git/archives/repo/norm.sh
             else
-                whl=/data/git/archives/repo/pkg/$(basename $(pwd)).whl
+                whl=/data/git/archives/repo/cp${TAG}/$(basename $(pwd)).whl
                 [ -f $whl ] && rm $whl
                 zip $whl -r .
             fi
