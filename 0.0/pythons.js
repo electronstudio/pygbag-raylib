@@ -304,7 +304,7 @@ function is_iframe() {
 // https://emscripten.org/docs/api_reference/Filesystem-API.html
 
 function prerun(VM) {
-    console.warn("VM.prerun")
+    console.warn("VM.prerun:Begin")
     // https://github.com/emscripten-core/emscripten/issues/4515
     // VM.FS = FS
     const sixel_prefix = String.fromCharCode(27)+"Pq"
@@ -402,7 +402,7 @@ function prerun(VM) {
     VM.arguments.push(VM.APK)
 
     VM.FS.init(stdin, stdout, stderr);
-
+    console.warn("VM.prerun:End")
 }
 
 
@@ -991,6 +991,26 @@ async function feat_fs(debug_hidden) {
 
 }
 
+// js.SMP
+
+function feat_smp() {
+    var dlhandler = document.getElementById('dlhandler')
+    if (!dlhandler) {
+        dlhandler = document.createElement('iframe')
+        dlhandler.id = "dlhandler"
+        dlhandler.name = "dlhandler"
+        dlhandler.loading = "lazy"
+        dlhandler.width = "470px"
+        dlhandler.height = "30%"
+dlhandler.style = "position: absolute;bottom: 12px;right: 12px;border: 1px solid red;"
+
+        dlhandler.frameborder = "1"
+        dlhandler.sandbox="allow-same-origin allow-top-navigation allow-scripts allow-pointer-lock"
+        dlhandler.allow="autoplay; fullscreen *; geolocation; microphone; camera; midi; monetization; xr-spatial-tracking; gamepad; gyroscope; accelerometer; xr; cross-origin-isolated"
+        dlhandler.src=config.cdn+"../../archives/lib/index.html"
+        document.body.appendChild(dlhandler)
+    }
+}
 
 // js.VT
 
@@ -1050,10 +1070,18 @@ async function feat_vtx(debug_hidden) {
     var fntsize = Math.floor(py/lines) - 1
 
     if (lines<=33) {
-        fntsize = ( fntsize - 5 ) / console_divider
+        fntsize = ( fntsize - 6 ) / console_divider
+        console.log("vtx font: less than 33 lines : forced font to", fntsize)
     }
 
-    console.warn("fnt:",window.document.body.clientHeight ,"/", lines,"=", fntsize, " Cols:", cols, "Cons:", cons)
+    if (navigator.userAgent.indexOf("Chrome") != -1 ) {
+        fntsize = Math.floor( fntsize  * 1.12 )
+        console.log("vtx font: 125%")
+    } else {
+        console.log("vtx font: 100%")
+    }
+
+    console.warn("vtx font:",window.document.body.clientHeight ,"/", lines,"=", fntsize, " Cols:", cols, "Cons:", cons)
     vm.vt = new WasmTerminal(
         "terminal",
         cols,
@@ -1576,10 +1604,12 @@ MM.unpause = function unpause(trackid) {
 }
 
 MM.set_volume = function set_volume(trackid, vol) {
+    console.log(`MM.set_volume track=${trackid} vol=${vol}`)
     MM[trackid].media.volume = 1 * vol
 }
 
-MM.set_volume = function get_volume(trackid, vol) {
+MM.get_volume = function get_volume(trackid, vol) {
+    console.log(`MM.get_volume track=${trackid} vol=${vol}`)
     return MM[trackid].media.volume
 }
 
@@ -2080,35 +2110,87 @@ window.Fetch.GET = function * GET (url, flags)
     }
 }
 
-
-
 // ====================================================================================
-//          pyodide compat layer
+//          dlfcn
 // ====================================================================================
 
+var dlfcn_handle_id = 0
+var dlfcn_handles = {}
+var dlfcn_retval = {}
 
-window.loadPyodide =
-    async function loadPyodide(cfg) {
-        vm.runPython =
-            function runPython(code) {
-                console.warn("runPython N/I", code)
-                vm.PyRun_SimpleString(code)
-                return 'N/A'
-            }
+function dlvoid(hexstack) {
+    //const dlhandler = document.getElementById("dlhandler").contentWindow
+    //window.console.log(`dlhandler.postMessage("${hexstack}")`)
+    dlhandler.postMessage(hexstack, "*")
+}
 
-        console.warn("loadPyodide N/I")
-        auto_start(cfg)
-        auto_start = null
-        await onload()
-        onload = null
-        await _until(defined)("python")
-        vm.vt.xterm.write = cfg.stdout
-        console.warn("using ", python)
-        return vm
+function * dlcall(callid, hexstack) {
+    //const dlhandler = document.getElementById("dlhandler").contentWindow
+    dlhandler.postMessage(hexstack, "*")
+    while (!dlfcn_retval[callid])
+        yield 0
+    yield dlfcn_retval[callid]
+}
+window.dlcall = dlcall
+
+function * dlopen(lib) {
+    dlfcn_handle_id += 1
+    const linkid =  lib + "_" + dlfcn_handle_id
+//    const dlhandler = document.getElementById("dlhandler").contentWindow
+
+    console.log("dlopen: opening :", linkid)
+
+// wait for lazy iframe case
+    while (!dlfcn_handles["dlopen"])
+        yield 0
+
+    dlhandler.postMessage("dlopen:"+lib+":"+ linkid , "*")
+    while (!dlfcn_handles[linkid])
+        yield 0
+
+    yield linkid
+}
+window.dlopen = dlopen
+
+function from_hex(h) {
+    var s = ''
+    for (var i = 0; i < h.length; i+=2) {
+        s += String.fromCharCode(parseInt(h.substr(i, 2), 16))
+    }
+    return decodeURIComponent(escape(s))
+}
+
+function rx(event) {
+    const rxmsg = ""+event.data
+    const origin = event.origin
+
+    var e = rxmsg.split(':')
+    const rt = e.shift()
+    if (rt == "dlopen") {
+        const serial = e.shift()
+        if (serial =="") {
+            const linkid = e.shift()
+            dlfcn_handles[linkid] = linkid
+        // call returned value
+        } else {
+            dlfcn_retval[serial] = from_hex(e.shift())
+        }
+    } else {
+        console.warn("bus(2158)",rxmsg, origin)
     }
 
+    if (origin) {
+        //console.log("forwarding",rxmsg)
+    }
+}
+
+window.addEventListener("message", rx, false);
+
+
+
+
 // ====================================================================================
-//          STARTUP
+//  Window  STARTUP
 // ====================================================================================
 
 async function onload() {
@@ -2171,10 +2253,7 @@ async function onload() {
     var has_vt = false
 
     for (const feature of vm.config.features) {
-        if (feature.startsWith("3d")) {
-            vm.config.user_canvas_managed = 3
-        }
-
+        // embed is for canvas only, do not handle anything else.
         if (feature.startsWith("embed")) {
 
             vm.config.user_canvas_managed = vm.config.user_canvas_managed || 1
@@ -2185,6 +2264,16 @@ async function onload() {
             }
             // only canvas when embedding 2D/3D, stdxxx go to console.
             break
+        }
+
+        // position iframe first
+        if (feature.startsWith("smp")) {
+            // cannot be hidden
+            feat_smp()
+        }
+
+        if (feature.startsWith("3d")) {
+            vm.config.user_canvas_managed = 3
         }
 
         if (feature.startsWith("snd")) {
@@ -2230,6 +2319,9 @@ async function onload() {
         } else {
             console.warn("NO VT/stdout on mobile, use remote debugger or explicit flag")
         }
+
+
+
     }
 
     // FIXME: forced minimal output until until remote debugger is a thing.
@@ -2254,7 +2346,7 @@ async function onload() {
 
 // console.log("cleanup while loading wasm", "has_parent?", is_iframe(), "Parent:", window.parent)
 
-    feat_snd = feat_gui = feat_fs = feat_vt = feat_vtx = feat_stdout = feat_lifecycle = onload = null
+    feat_smp = feat_snd = feat_gui = feat_fs = feat_vt = feat_vtx = feat_stdout = feat_lifecycle = onload = null
 
     if ( is_iframe() ) {
         try {
@@ -2282,10 +2374,44 @@ async function onload() {
 // -->
     }
 
+
+    // Hides mobile browser's address bar when page is done loading.
+    setTimeout(function() { window.scrollTo({left:0, top:1080, behaviour :"instant"}) }, 1);
+
 // TODO: error alert if 404 / timeout
     console.warn("Loading python interpreter from", config.executable)
     jsimport(config.executable)
 }
+
+// ====================================================================================
+//          pyodide compat layer
+// ====================================================================================
+
+
+window.loadPyodide =
+    async function loadPyodide(cfg) {
+        vm.runPython =
+            function runPython(code) {
+                console.warn("runPython N/I", code)
+                vm.PyRun_SimpleString(code)
+                return 'N/A'
+            }
+
+        console.warn("loadPyodide N/I")
+        auto_start(cfg)
+        auto_start = null
+        await onload()
+        onload = null
+        await _until(defined)("python")
+        vm.vt.xterm.write = cfg.stdout
+        console.warn("using ", python)
+        return vm
+    }
+
+
+// ====================================================================================
+//  JS STARTUP
+// ====================================================================================
 
 
 function auto_conf(cfg) {
@@ -2542,7 +2668,5 @@ function auto_start(cfg) {
 window.set_raw_mode = function (param) {
     window.RAW_MODE = param || 0
 }
-
-
 
 auto_start()
