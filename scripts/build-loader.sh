@@ -127,7 +127,7 @@ LOPTS="-sMAIN_MODULE=1"
 echo "  ************************************"
 if [ -f dev ]
 then
-    export COPTS="-O0 -g4 -fPIC --source-map-base http://localhost:8000/maps/"
+    export COPTS="-O0 -g3 -fPIC --source-map-base http://localhost:8000/maps/"
     echo "       building DEBUG $COPTS"
     LOPTS="$LOPTS -sASSERTIONS=0"
 #    ALWAYS_FS="--preload-file ${ALWAYS_CODE}@/data/data/org.python/assets"
@@ -231,8 +231,21 @@ echo CPY_CFLAGS=$CPY_CFLAGS
 
 
 
+if [ -f /data/git/pygbag/integration/${INTEGRATION}.h ]
+then
+    LNK_TEST=/data/git/pygbag/integration/${INTEGRATION}
+else
+    LNK_TEST=/tmp/pygbag_integration_test
+fi
+
+INC_TEST="${LNK_TEST}.h"
+MAIN_TEST="${LNK_TEST}.c"
+
+
+touch ${INT_TEST} ${INC_TEST} ${MAIN_TEST}
 
 if emcc -fPIC -std=gnu99 -D__PYDK__=1 -DNDEBUG $MIMALLOC $CPY_CFLAGS $CF_SDL $CPOPTS \
+ -DINC_TEST=$INC_TEST -DMAIN_TEST=$MAIN_TEST \
  -c -fwrapv -Wall -Werror=implicit-function-declaration -fvisibility=hidden \
  -I${PYDIR}/internal -I${PYDIR} -I./support -I./external/hpy/hpy/devel/include -DPy_BUILD_CORE\
  -o build/${MODE}.o support/__EMSCRIPTEN__-pymain.c
@@ -284,6 +297,10 @@ then
         LDFLAGS="$LDFLAGS $cpylib"
     done
 
+
+    LDFLAGS="$LDFLAGS $(cat $LNK_TEST) -lembind"
+
+
     echo "
 
      LDFLAGS=$LDFLAGS
@@ -293,6 +310,10 @@ then
 #  -std=gnu99 -std=c++23
 # EXTRA_EXPORTED_RUNTIME_METHODS => EXPORTED_RUNTIME_METHODS after 3.1.52
 
+
+
+
+PG=/pgdata
     cat > final_link.sh <<END
 #!/bin/bash
 emcc \\
@@ -310,11 +331,7 @@ emcc \\
      --preload-file ${DYNLOAD}@/usr/lib/python${PYBUILD}/lib-dynload \\
      --preload-file ${REQUIREMENTS}@/data/data/org.python/assets/site-packages \\
      -o ${DIST_DIR}/${DISTRO}${PYMAJOR}${PYMINOR}/${MODE}.js build/${MODE}.o \\
-     $LDFLAGS -lembind
-
-# -sERROR_ON_UNDEFINED_SYMBOLS=0
-# -sGL_ENABLE_GET_PROC_ADDRESS
-# --bind -fno-rtti
+     $LDFLAGS
 
 
 END

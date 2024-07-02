@@ -48,7 +48,6 @@ debug:
 #include <unistd.h>
 
 
-
 static int preloads = 0;
 static long long loops = 0;
 
@@ -91,8 +90,13 @@ char buf[FD_BUFFER_MAX];
 // TODO: store input frame counter + timestamps for all I/O
 // for ascii app record/replay.
 
-
-
+#if defined(INC_TEST)
+#define xstr(s) str(s)
+#define str(s) #s
+#define INC_TEST_FILE xstr(INC_TEST)
+#define MAIN_TEST_FILE xstr(MAIN_TEST)
+#include INC_TEST_FILE
+#endif
 
 
 #if defined(WAPY)
@@ -1064,15 +1068,17 @@ main(int argc, char **argv)
     io_shm[IO_RAW] = memset(malloc(FD_BUFFER_MAX) , 0, FD_BUFFER_MAX);
     io_shm[IO_RCON] = memset(malloc(FD_BUFFER_MAX) , 0, FD_BUFFER_MAX);
 
+    #include MAIN_TEST_FILE
+
 
 EM_ASM({
-    const FD_BUFFER_MAX = $0;
-    const shm_stdin = $1;
-    const shm_rawinput = $2;
-    const shm_rcon = $3;
+    globalThis.FD_BUFFER_MAX = $0;
+    globalThis.shm_stdin = $1;
+    globalThis.shm_rawinput = $2;
+    globalThis.shm_rcon = $3;
 
     Module.printErr = Module.print;
-    const is_worker = (typeof WorkerGlobalScope !== 'undefined') && self instanceof WorkerGlobalScope;
+    globalThis.is_worker = (typeof WorkerGlobalScope !== 'undefined') && self instanceof WorkerGlobalScope;
 
     function jswasm_load(script, aio) {
         if (!aio) aio=false;
@@ -1129,17 +1135,11 @@ EM_ASM({
             } else {
                 console.error("PyMain: BrowserFS not found");
             }
-            if ($4) {
-                SYSCALLS.getStreamFromFD(0).tty = true;
-                SYSCALLS.getStreamFromFD(1).tty = true;
-                SYSCALLS.getStreamFromFD(2).tty = false;
-            }
         }
     }
 
 
-}, FD_BUFFER_MAX, io_shm[0], io_shm[IO_RAW], io_shm[IO_RCON], CPY);
-
+}, FD_BUFFER_MAX, io_shm[0], io_shm[IO_RAW], io_shm[IO_RCON]);
 
     PyRun_SimpleString("import sys, os, json, builtins, time");
     PyRun_SimpleString("sys.ps1 = ''");
@@ -1167,6 +1167,8 @@ EM_ASM({
         SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, target);
     }
 #endif
+
+
 #if ASYNCIFIED
     clock_t start = clock()+100;
     while (1) {
