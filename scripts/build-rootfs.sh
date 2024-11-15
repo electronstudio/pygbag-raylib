@@ -198,8 +198,19 @@ echo "-----------------------------------------------------------"
 $HPY -u -I -B <<END
 import sys, os
 stdlp=""
+
+
+threading_model = os.popen('${HPY}-config --abiflags').read().strip()
+
+
+if 't' in threading_model:
+    SCD="_sysconfigdata_t"
+else:
+    SCD="_sysconfigdata_"
+
 with open("build/stdlib.list","w") as tarlist:
-    sysconf = "_sysconfigdata__linux_$(arch)-linux-gnu.py"
+
+    sysconf = f"{SCD}_linux_$(arch)-linux-gnu.py"
     with open("$FS") as fs:
         for l in fs.readlines():
             #print( l.strip() )

@@ -68,6 +68,7 @@ class CodeHandler(SimpleHTTPRequestHandler):
         # not -always- valid for Atomics (firefox)
         # self.send_header("cross-origin-embedder-policy", "credentialless")
 
+        # Access-Control-Allow-Private-Network
         self.send_header("cross-origin-embedder-policy", "require-corp")
 
         super().end_headers()
@@ -89,10 +90,12 @@ class CodeHandler(SimpleHTTPRequestHandler):
         global VERB, CDN, PROXY, BCDN, BPROXY, AUTO_REBUILD
         path = self.translate_path(self.path)
         if VERB:
-            print(f"""
+            print(
+                f"""
 
 {self.path=} {path=}
-""")
+"""
+            )
 
         f = None
         if os.path.isdir(path):

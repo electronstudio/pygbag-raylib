@@ -12,7 +12,6 @@ import glob
 
 import re
 
-print(sys.path)
 import tomllib
 
 import json
@@ -27,6 +26,7 @@ from aio.filelike import fopen
 import platform
 import platform_wasm.todo
 
+from zipfile import ZipFile
 
 # TODO: maybe control wheel cache with $XDG_CACHE_HOME/pip
 
@@ -48,16 +48,17 @@ if sconf["platlib"] not in sys.path:
     sys.path.append(sconf["platlib"])
 
 PATCHLIST = []
+
 # fast skip list
-HISTORY = ["pyodide"]
+HISTORY = ["pyodide", "pytest", "pytest-ruff", "ruff"]
 
 hint_failed = []
 
 
 class Config:
-    READ_722 = False
+    #    READ_722 = False
     READ_723 = True
-    BLOCK_RE_722 = r"(?i)^#\s+script\s+dependencies:\s*$"
+    #    BLOCK_RE_722 = r"(?i)^#\s+script\s+dependencies:\s*$"
     BLOCK_RE_723 = r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$"
     PKG_BASE_DEFAULT = "https://pygame-web.github.io/archives/repo/"
     PKG_INDEXES = []
@@ -67,11 +68,17 @@ class Config:
     pkg_repolist = []
     dev_mode = ".-X.dev." in ".".join([""] + sys.orig_argv + [""])
 
+    Requires_Dist = []
+    Requires_Processing = []
+    Requires_Failures = []
+
     mapping = {
         "pygame": "pygame.base",
         "pygame_ce": "pygame.base",
         "python_i18n": "i18n",
         "pillow": "PIL",
+        "pyglm": "glm",
+        "opencv_python": "cv2",
     }
 
 
@@ -108,7 +115,7 @@ def read_dependency_block_723(code):
     content = []
     for line in code.split("\n"):
         if not has_block:
-            if line.strip() in ["# /// pyproject","# /// script"]:
+            if line.strip() in ["# /// pyproject", "# /// script"]:
                 has_block = True
             continue
 
@@ -129,23 +136,14 @@ def read_dependency_block_723(code):
         yield dep
 
 
-def read_dependency_block_723x(script):
-    name = "pyproject"
-    matches = list(filter(lambda m: m.group("type") == name, re.finditer(Config.BLOCK_RE_723, script)))
-    if len(matches) > 1:
-        raise ValueError(f"Multiple {name} blocks found")
-    elif len(matches) == 1:
-        print(tomllib.loads(matches[0]))
-        yield "none"
-    else:
-        return None
-
-
 def install(pkg_file, sconf=None):
     global HISTORY
     from installer import install
     from installer.destinations import SchemeDictionaryDestination
     from installer.sources import WheelFile
+    if pkg_file in HISTORY:
+        print(f"# 144: install: {pkg_file} already installed")
+        return
 
     # Handler for installation directories and writing into them.
     destination = SchemeDictionaryDestination(
@@ -167,11 +165,11 @@ def install(pkg_file, sconf=None):
         if pkg_file not in HISTORY:
             HISTORY.append(pkg_file)
             importlib.invalidate_caches()
-        print(f"142: {pkg_file} installed")
+        print(f"# 166: {pkg_file} installed")
     except FileExistsError as ex:
-        print(f"38: {pkg_file} already installed (or partially)", ex)
+        print(f"# 160: {pkg_file} already installed (or partially)", ex)
     except Exception as ex:
-        pdb(f"82: cannot install {pkg_file}")
+        pdb(f"# 170: cannot install {pkg_file}")
         sys.print_exception(ex)
 
 
@@ -190,49 +188,103 @@ async def async_repos():
     apitag = apitag.replace("-", "_")
 
     # user can override "PYPI" index
-    if os.environ.get('PYGPI',""):
-        Config.PKG_INDEXES= [os.environ.get('PYGPI')]
+    if os.environ.get("PYGPI", ""):
+        Config.PKG_INDEXES = [os.environ.get("PYGPI")]
 
     # default to "official" cdn
     if not len(Config.PKG_INDEXES):
-        Config.PKG_INDEXES = [ Config.PKG_BASE_DEFAULT ]
+        Config.PKG_INDEXES = [Config.PKG_BASE_DEFAULT]
 
     print("200: async_repos", Config.PKG_INDEXES)
 
     for repo in Config.PKG_INDEXES:
-        idx = f"{repo}index-090-{abitag}.json"
-        async with fopen(idx, "r", encoding="UTF-8") as index:
-            try:
-                data = index.read()
-                if isinstance(data, bytes):
-                    data = data.decode()
-                data = data.replace("<abi>", abitag)
-                data = data.replace("<api>", apitag)
-                repo = json.loads(data)
-            except:
-                pdb(f"213: {idx=}: malformed json index {data}")
-                continue
-            if repo not in Config.pkg_repolist:
-                Config.pkg_repolist.append(repo)
+        idx = f"{repo}index-0.9.2-{abitag}.json"
+        try:
+            async with fopen(idx, "r", encoding="UTF-8") as index:
+                try:
+                    data = index.read()
+                    if isinstance(data, bytes):
+                        data = data.decode()
+                    data = data.replace("<abi>", abitag)
+                    data = data.replace("<api>", apitag)
+                    repo = json.loads(data)
+                except:
+                    pdb(f"213: {idx=}: malformed json index {data}")
+                    continue
+                if repo not in Config.pkg_repolist:
+                    Config.pkg_repolist.append(repo)
+        except FileNotFoundError:
+            print("\n" * 4)
+            print("!" * 75)
+            print("Sorry, there is no pygbag package repository for your python version")
+            print("!" * 75, "\n" * 4)
+            raise SystemExit
 
     if not aio.cross.simulator:
         rewritecdn = ""
         import platform
-        if os.environ.get('PYGPI',""):
-            rewritecdn = os.environ.get('PYGPI')
+
+        if os.environ.get("PYGPI", ""):
+            rewritecdn = os.environ.get("PYGPI")
         elif platform.window.location.href.startswith("http://localhost:8"):
             rewritecdn = "http://localhost:8000/archives/repo/"
 
         if rewritecdn:
-            print(f"""230: {rewritecdn=}""")
+            print(f"# 231: {rewritecdn=}")
             for idx, repo in enumerate(Config.pkg_repolist):
                 repo["-CDN-"] = rewritecdn
+
+def processing(dep):
+    if dep in HISTORY:
+        return True
+    if dep in Config.Requires_Processing:
+        return True
+    if dep in Config.Requires_Failures:
+        return True
+    return False
+
 
 async def install_pkg(sysconf, wheel_url, wheel_pkg):
     target_filename = f"/tmp/{wheel_pkg}"
     async with fopen(wheel_url, "rb") as pkg:
         with open(target_filename, "wb") as target:
             target.write(pkg.read())
+        pkg.seek(0)
+        with ZipFile(pkg) as archive:
+            for name in archive.namelist():
+                if name.endswith(".dist-info/METADATA"):
+                    for line in archive.open(name).read().decode().splitlines():
+                        if line.startswith('Requires-Dist: '):
+                            if line.find('; extra ')>0:
+                                continue
+                            req = Requirement(line[15:])
+                            if req.extras:
+                                continue
+                            if processing(req.name):
+                                continue
+                            if not req.name in Config.Requires_Dist:
+                                Config.Requires_Dist.insert(0,req.name)
+    while len(Config.Requires_Dist):
+        elem = None
+        for elem in Config.Requires_Dist:
+            if not processing(elem):
+                break
+        else:
+            break
+        Config.Requires_Processing.append(elem)
+        print(f"# 265: {elem=}")
+        if not await pip_install(elem, sysconf):
+            print(f"install: {wheel_pkg} is missing {elem}")
+        else:
+            try:
+                Config.Requires_Processing.remove(elem)
+            except:
+                pass
+            try:
+                Config.Requires_Dist.remove(elem)
+            except:
+                pass
+
     install(target_filename, sysconf)
 
 
@@ -253,10 +305,10 @@ def do_patches():
 # FIXME: HISTORY and invalidate caches
 async def pip_install(pkg, sysconf={}):
     global sconf
-    if pkg in HISTORY:
+    if pkg in Config.Requires_Failures:
         return
 
-    print("282: searching", pkg)
+    #print("282: searching", pkg)
 
     if not sysconf:
         sysconf = sconf
@@ -264,11 +316,14 @@ async def pip_install(pkg, sysconf={}):
     wheel_url = ""
 
     # hack for WASM wheel repo
-    if pkg.lower() in Config.mapping:
-        pkg = Config.mapping[pkg.lower()]
-        if pkg in HISTORY:
-            return
-        print("294: package renamed to", pkg)
+    remap = pkg.lower().replace('-','_')
+    if remap in Config.mapping:
+        pkg = Config.mapping[remap]
+        print(f"294: {remap} package renamed to {pkg}")
+
+    if pkg in HISTORY:
+        print(f"# 322: pip_install: {pkg} already installed")
+        return
 
     if pkg in platform.patches:
         if not pkg in PATCHLIST:
@@ -300,31 +355,37 @@ async def pip_install(pkg, sysconf={}):
     if wheel_url:
         try:
             wheel_pkg, wheel_hash = wheel_url.rsplit("/", 1)[-1].split("#", 1)
-            await install_pkg(sysconf, wheel_url, wheel_pkg)
             if pkg not in HISTORY:
                 HISTORY.append(pkg)
-        except:
-            print("324: INVALID", pkg, "from", wheel_url)
+            await install_pkg(sysconf, wheel_url, wheel_pkg)
+            return True
+        except Exception as e:
+            print("324: INVALID", pkg, "from", wheel_url, e)
+            #sys.print_exception(e)
     else:
         print(f"309: no provider found for {pkg}")
 
+    if not pkg in Config.Requires_Failures:
+        Config.Requires_Failures.append(pkg)
+
 
 PYGAME = 0
+
 
 async def parse_code(code, env):
     global PATCHLIST, PYGAME
 
     maybe_missing = []
 
-    if Config.READ_722:
-        for req in read_dependency_block_722(code):
-            pkg = str(req)
-            if (env / pkg).is_dir():
-                print("found in env :", pkg)
-                continue
-            elif pkg not in maybe_missing:
-                # do not change case ( eg PIL )
-                maybe_missing.append(pkg.lower().replace("-", "_"))
+    #    if Config.READ_722:
+    #        for req in read_dependency_block_722(code):
+    #            pkg = str(req)
+    #            if (env / pkg).is_dir():
+    #                print("found in env :", pkg)
+    #                continue
+    #            elif pkg not in maybe_missing:
+    #                # do not change case ( eg PIL )
+    #                maybe_missing.append(pkg.lower().replace("-", "_"))
 
     if Config.READ_723:
         for req in read_dependency_block_723(code):
@@ -427,7 +488,15 @@ async def check_list(code=None, filename=None):
         import platform
         import asyncio
 
-        platform.explore(sconf["platlib"])
+        print(f'# 439: Scanning {sconf["platlib"]} for WebAssembly library')
+        platform.explore(sconf["platlib"], verbose=True)
+        for compilation in range(1 + embed.preloading()):
+
+            await asyncio.sleep(0)
+            if embed.preloading() <= 0:
+                break
+        else:
+            print("# 442: ERROR: remaining wasm {embed.preloading()}")
         await asyncio.sleep(0)
 
     do_patches()

@@ -10,7 +10,7 @@ then
     if ${ABI3:-false}
     then
     echo "  vendor build (abi3) $PYBUILD"
-        if echo $PYBUILD|grep -v -q 3.12$
+        if echo $PYBUILD|grep -v -q 3.13$
         then
             echo "abi3 vendor build only, skipping $PYBUILD"
             exit 0
@@ -18,7 +18,7 @@ then
     fi
 fi
 
-ln -s $(pwd)/src/pygbag $(pwd)/pygbag
+# [ -L $(pwd)/pygbag ] || -sf $(pwd)/src/pygbag $(pwd)/pygbag
 
 pushd src/pygbag/support
 cp -r _xterm_parser ${SDKROOT}/prebuilt/emsdk/common/site-packages/
@@ -231,9 +231,9 @@ echo CPY_CFLAGS=$CPY_CFLAGS
 
 
 
-if [ -f /data/git/pygbag/integration/${INTEGRATION}.h ]
+if [ -f ${WORKSPACE}/integration/${INTEGRATION}.h ]
 then
-    LNK_TEST=/data/git/pygbag/integration/${INTEGRATION}
+    LNK_TEST=${WORKSPACE}/integration/${INTEGRATION}
 else
     LNK_TEST=/tmp/pygbag_integration_test
 fi
@@ -242,15 +242,22 @@ INC_TEST="${LNK_TEST}.h"
 MAIN_TEST="${LNK_TEST}.c"
 
 
-touch ${INT_TEST} ${INC_TEST} ${MAIN_TEST}
+touch ${INT_TEST} ${INC_TEST} ${LNK_TEST} ${MAIN_TEST}
+
+# -L${SDKROOT}/emsdk/upstream/emscripten/cache/sysroot/lib/wasm32-emscripten/pic only !
 
 if emcc -fPIC -std=gnu99 -D__PYDK__=1 -DNDEBUG $MIMALLOC $CPY_CFLAGS $CF_SDL $CPOPTS \
  -DINC_TEST=$INC_TEST -DMAIN_TEST=$MAIN_TEST \
  -c -fwrapv -Wall -Werror=implicit-function-declaration -fvisibility=hidden \
- -I${PYDIR}/internal -I${PYDIR} -I./support -I./external/hpy/hpy/devel/include -DPy_BUILD_CORE\
+ -I${PYDIR}/internal -I${PYDIR} -I./support -I./external/hpy/hpy/devel/include -DPy_BUILD_CORE \
  -o build/${MODE}.o support/__EMSCRIPTEN__-pymain.c
 then
-    STDLIBFS="--preload-file build/stdlib-rootfs/python${PYBUILD}@/usr/lib/python${PYBUILD}"
+    if ${HPY}-config --abiflags| grep -q t$
+    then
+        STDLIBFS="--preload-file build/stdlib-rootfs/python${PYBUILD}t@/usr/lib/python${PYBUILD}t"
+    else
+        STDLIBFS="--preload-file build/stdlib-rootfs/python${PYBUILD}@/usr/lib/python${PYBUILD}"
+    fi
 
     # \
     # --preload-file /usr/share/terminfo/x/xterm@/usr/share/terminfo/x/xterm \
@@ -261,25 +268,21 @@ then
 
 # TODO: test -sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION
 
-#
+# --use-port=contrib.glfw3
+    #LDFLAGS="-sUSE_GLFW=3 -sUSE_WEBGL2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sOFFSCREENCANVAS_SUPPORT=1 -sFULL_ES2 -sFULL_ES3"
 
     LDFLAGS="-sUSE_GLFW=3 -sUSE_WEBGL2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sOFFSCREENCANVAS_SUPPORT=1 -sFULL_ES2 -sFULL_ES3"
 
-    LDFLAGS="$LDFLAGS -lsqlite3"
 
-    LDFLAGS="-L${SDKROOT}/devices/emsdk/usr/lib $LDFLAGS -lssl -lcrypto -lffi -lbz2 -lz -ldl -lm"
+    LDFLAGS="-L${SDKROOT}/devices/emsdk/usr/lib $LDFLAGS -lssl -lcrypto -lsqlite3 -lffi -lbz2 -lz -ldl -lm"
 
     LINKPYTHON="python mpdec expat"
 
-    if  echo $PYBUILD|grep -q 3.12
+    if [ ${PYMINOR} -ge 11 ]
     then
-        LINKPYTHON="Hacl_Hash_SHA2 $LINKPYTHON"
-    else
-        if  echo $PYBUILD|grep -q 3.13
-        then
-            LINKPYTHON="Hacl_Hash_SHA2 $LINKPYTHON"
-        fi
+        LINKPYTHON="Hacl_Hash_SHA2 Hacl_Hash_Blake2 $LINKPYTHON"
     fi
+
 
     for lib in $LINKPYTHON
     do
@@ -287,8 +290,18 @@ then
         if [ -f $cpylib ]
         then
             LDFLAGS="$LDFLAGS $cpylib"
+        else
+            echo "  Not found : $cpylib"
         fi
     done
+
+    # 3.13 and up may rely on system mpdec
+    if echo $LDFLAGS|grep libmpdec
+    then
+        echo -n
+    else
+        LDFLAGS="$LDFLAGS -lmpdec"
+    fi
 
 
     for lib in $PACKAGES
@@ -311,12 +324,10 @@ then
 # EXTRA_EXPORTED_RUNTIME_METHODS => EXPORTED_RUNTIME_METHODS after 3.1.52
 
 
-
-
 PG=/pgdata
     cat > final_link.sh <<END
 #!/bin/bash
-emcc \\
+emcc -sENVIRONMENT=web \\
  $FINAL_OPTS \\
  $LOPTS \\
  -D__PYDK__=1 -DNDEBUG  \\
@@ -333,12 +344,11 @@ emcc \\
      -o ${DIST_DIR}/${DISTRO}${PYMAJOR}${PYMINOR}/${MODE}.js build/${MODE}.o \\
      $LDFLAGS
 
-
 END
     chmod +x ./final_link.sh
     if ./final_link.sh
     then
-        rm build/${MODE}.o
+        #rm build/${MODE}.o
         du -hs ${DIST_DIR}/*
         echo Total
         echo _________
@@ -378,13 +388,6 @@ END
             done
             popd
         fi
-#echo "
-#    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#    emsdk tot js gen temp fix
-#    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#"
-#        sed -i 's/_glfwSetWindowContentScaleCallback_sig=iii/_glfwSetWindowContentScaleCallback_sig="iii"/g' \
-#         ${DIST_DIR}/python${PYMAJOR}${PYMINOR}/${MODE}.js
         du -hs ${DIST_DIR}/*
     else
         echo "pymain+loader linking failed"
