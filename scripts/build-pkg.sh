@@ -8,7 +8,7 @@ then
     if ${ABI3:-false}
     then
         echo "  vendor build (abi3) $PYBUILD"
-        if echo $PYBUILD|grep -v -q 3.13$
+        if echo $PYBUILD|grep -v -q 3.12$
         then
             echo "abi3 vendor build only, skipping $PYBUILD"
             exit 0
