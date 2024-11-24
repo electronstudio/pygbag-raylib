@@ -1,0 +1,230 @@
+diff --git a/src/external/miniaudio.h b/src/external/miniaudio.h
+index ad11333..783cbc9 100644
+--- a/src/external/miniaudio.h
++++ b/src/external/miniaudio.h
+@@ -16187,7 +16187,7 @@ static void ma_thread_wait__posix(ma_thread* pThread)
+ static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
+ {
+     int result;
+-    
++
+     if (pMutex == NULL) {
+         return MA_INVALID_ARGS;
+     }
+@@ -40265,7 +40265,39 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
+             device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channelCountIn, channelCountOut);
+ 
+             /* The node processing callback. */
+-            device.scriptNode.onaudioprocess = function(e) {
++            function late_fill(e, bufferSize, pIntermediaryBuffer) {
++                const device = miniaudio.devices[miniaudio.devid];
++
++                if (device) {
++
++                    if (!e) {
++                        e = miniaudio.e;
++                    }
++
++                    if (!bufferSize) {
++                        bufferSize = miniaudio.bs;
++                    }
++
++                    if (!pIntermediaryBuffer) {
++                        pIntermediaryBuffer = miniaudio.pib;
++                    }
++
++                    for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
++                        var outputBuffer = e.outputBuffer.getChannelData(iChannel);
++                        var intermediaryBuffer = device.intermediaryBufferView;
++
++                        for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
++                            outputBuffer[iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
++                        }
++                    }
++                } else {
++                    console.error("cannot fill");
++                }
++            };
++
++            globalThis.late_fill = late_fill;
++
++            function scriptnode_cb(e) {
+                 if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0) {
+                     device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, pIntermediaryBuffer, bufferSize * channels);
+                 }
+@@ -40281,20 +40313,24 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
+                             intermediaryBuffer[iFrame*channels + iChannel] = inputBuffer[iFrame];
+                         }
+                     }
+-
+-                    _ma_device_process_pcm_frames_capture__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
++                    console.log("_ma_device_process_pcm_frames_capture__webaudio", pDevice, bufferSize, pIntermediaryBuffer);
+                 }
+ 
+-                if (deviceType == miniaudio.device_type.playback || deviceType == miniaudio.device_type.duplex) {
+-                    _ma_device_process_pcm_frames_playback__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
+ 
+-                    for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+-                        var outputBuffer = e.outputBuffer.getChannelData(iChannel);
+-                        var intermediaryBuffer = device.intermediaryBufferView;
+-
+-                        for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
+-                            outputBuffer[iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
++                if (deviceType == miniaudio.device_type.playback || deviceType == miniaudio.device_type.duplex) {
++                    if (miniaudio.devices[miniaudio.devid]) {
++                        if (!miniaudio.lock)
++                            late_fill(e, bufferSize, pIntermediaryBuffer);
++                        else {
++                            if (miniaudio.lock<5)
++                               miniaudio.lock += 1;
+                         }
++                        miniaudio.e = e;
++                        miniaudio.bs = bufferSize;
++                        miniaudio.pib = pIntermediaryBuffer;
++
++                    } else {
++                        console.log("_ma_device_process_pcm_frames_playback__webaudio", miniaudio.devid, pDevice, bufferSize, pIntermediaryBuffer);
+                     }
+                 } else {
+                     /* It's a capture-only device. Make sure the output is silenced. */
+@@ -40302,8 +40338,11 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
+                         e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                     }
+                 }
++
+             };
+ 
++            device.scriptNode.onaudioprocess = scriptnode_cb;
++
+             /* Now we need to connect our node to the graph. */
+             if (deviceType == miniaudio.device_type.capture || deviceType == miniaudio.device_type.duplex) {
+                 navigator.mediaDevices.getUserMedia({audio:true, video:false})
+@@ -40322,8 +40361,8 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
+             }
+ 
+             device.pDevice = pDevice;
+-
+-            return miniaudio.track_device(device);
++            miniaudio.devid = miniaudio.track_device(device);
++            return miniaudio.devid;
+         }, pConfig->deviceType, channels, sampleRate, periodSizeInFrames, pDevice->webaudio.pIntermediaryBuffer, pDevice);
+ 
+         if (deviceIndex < 0) {
+@@ -40358,6 +40397,53 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
+     #endif
+ }
+ 
++
++EMSCRIPTEN_KEEPALIVE void
++process_audio() {
++    int lock = EM_ASM_INT({
++        const ma = globalThis.miniaudio;
++        if (!ma)
++            return 0;
++        const ret = ma.lock;
++        if (ret == -2) {
++            console.log("process_audio : locked");
++        }
++        if (ret == -1) {
++            console.log("process_audio : unlocking");
++        }
++        return ret;
++    });
++
++    if (!lock)
++        return;
++
++    if (lock==-2)
++        return;
++
++    int pDevice = EM_ASM_INT({
++            if (miniaudio.lock>0)
++                miniaudio.lock--;
++            return miniaudio.devices[miniaudio.devid].pDevice;
++        });
++
++    if (lock>0) {
++
++        int bufferSize = EM_ASM_INT({
++                return miniaudio.bs;
++            });
++
++        int pIntermediaryBuffer = EM_ASM_INT({
++                console.log("process_audio : streaming");
++                return miniaudio.pib;
++            });
++
++        ma_device_process_pcm_frames_playback__webaudio((ma_device*)pDevice, bufferSize, (void*)pIntermediaryBuffer);
++
++    } else {
++        ma_device__on_notification( ma_device_notification_init((ma_device*)pDevice, ma_device_notification_type_unlocked) );
++    }
++}
++
+ static ma_result ma_device_start__webaudio(ma_device* pDevice)
+ {
+     MA_ASSERT(pDevice != NULL);
+@@ -40448,11 +40534,17 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
+             /* Device cache for mapping devices to indexes for JavaScript/C interop. */
+             miniaudio.devices = [];
+ 
++miniaudio.lock = -2;
++miniaudio.e = null;
++miniaudio.bs = 0;
++miniaudio.pib = 0;
++
+             miniaudio.track_device = function(device) {
+                 /* Try inserting into a free slot first. */
+                 for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
+                     if (miniaudio.devices[iDevice] == null) {
+                         miniaudio.devices[iDevice] = device;
++//miniaudio.devid = iDevice;
+                         return iDevice;
+                     }
+                 }
+@@ -40500,7 +40592,9 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
+                         device.state === window.miniaudio.device_state.started) {
+ 
+                         device.webaudio.resume().then(() => {
+-                                Module._ma_device__on_notification_unlocked(device.pDevice);
++                                console.log("_ma_device__on_notification_unlocked", device.pDevice);
++                                if (miniaudio.lock==-2)
++                                    miniaudio.lock = -1;
+                             },
+                             (error) => {console.error("Failed to resume audiocontext", error);
+                             });
+diff --git a/src/platforms/rcore_web.c b/src/platforms/rcore_web.c
+index f9d93e5..5a3ee9d 100644
+--- a/src/platforms/rcore_web.c
++++ b/src/platforms/rcore_web.c
+@@ -158,7 +158,7 @@ bool WindowShouldClose(void)
+     // By default, this function is never called on a web-ready raylib example because we encapsulate
+     // frame code in a UpdateDrawFrame() function, to allow browser manage execution asynchronously
+     // but now emscripten allows sync code to be executed in an interpreted way, using emterpreter!
+-    emscripten_sleep(16);
++    // emscripten_sleep(16);
+     return false;
+ }
+ 
+diff --git a/src/rcore.c b/src/rcore.c
+index ba23df7..4f249d9 100644
+--- a/src/rcore.c
++++ b/src/rcore.c
+@@ -882,7 +882,7 @@ void BeginDrawing(void)
+     //rlTranslatef(0.375, 0.375, 0);    // HACK to have 2D pixel-perfect drawing on OpenGL 1.1
+                                         // NOTE: Not required with OpenGL 3.3+
+ }
+-
++extern void process_audio();
+ // End canvas drawing and swap buffers (double buffering)
+ void EndDrawing(void)
+ {
+@@ -995,7 +995,7 @@ void EndDrawing(void)
+         }
+     }
+ #endif  // SUPPORT_SCREEN_CAPTURE
+-
++    process_audio();
+     CORE.Time.frameCounter++;
+ }
+ 
