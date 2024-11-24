@@ -46,8 +46,23 @@ then
         # correctly on wasm
 
 
-    patch -p1 <"$GITHUB_WORKSPACE/raylib-web-audio.diff"
+    patch -p1 <<END
+diff --git a/src/platforms/rcore_web.c b/src/platforms/rcore_web.c
+index a13f699..52ab2a1 100644
+--- a/src/platforms/rcore_web.c
++++ b/src/platforms/rcore_web.c
+@@ -153,7 +153,7 @@ bool WindowShouldClose(void)
+     // By default, this function is never called on a web-ready raylib example because we encapsulate
+     // frame code in a UpdateDrawFrame() function, to allow browser manage execution asynchronously
+     // but now emscripten allows sync code to be executed in an interpreted way, using emterpreter!
+-    emscripten_sleep(16);
++    // emscripten_sleep(16);
+     return false;
+ }
 
+END
+
+    patch -p1 <"$GITHUB_WORKSPACE/raylib-web-audio2.diff"
 
     mkdir build
     cd build
