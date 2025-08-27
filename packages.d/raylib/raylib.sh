@@ -62,7 +62,7 @@ index a13f699..52ab2a1 100644
 
 END
 
-    patch -p1 <"$GITHUB_WORKSPACE/raylib-web-audio2.diff"
+    patch -p1 <"$GITHUB_WORKSPACE/raylib-web-audio3.diff"
 
     mkdir build
     cd build
