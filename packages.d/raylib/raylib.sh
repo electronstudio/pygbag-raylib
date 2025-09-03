@@ -92,6 +92,8 @@ END
 
     # build it
 
+    ${SDKROOT}/python3-wasm -m pip install pycparser
+
     ${SDKROOT}/python3-wasm setup.py bdist_wheel --py-limited-api=cp310
 
 
